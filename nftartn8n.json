@@ -18,6 +18,9 @@
       "parameters": {
         "mode": "manual",
         "duplicateItem": false,
+        "options": {
+          "keepExistingData": true
+        },
         "assignments": {
           "assignments": [
             {
@@ -65,7 +68,7 @@
             {
               "id": "workflow_start_time",
               "name": "workflow_start_time",
-              "value": "{{ new Date().toISOString() }}",
+              "value": "={{ new Date().toISOString() }}",
               "type": "string"
             }
           ]
@@ -74,7 +77,7 @@
     },
     {
       "id": "check_max_attempts",
-      "name": "Check Max Attempts",
+      "name": "Check Loop Condition",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [500, 100],
@@ -138,7 +141,16 @@
             "retryDelay": 1000
           }
         },
-        "bodyParametersJson": "{\n  \"model\": \"gpt-4-turbo-preview\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert AI art prompt engineer specializing in creating highly detailed, visually stunning prompts for AI image generation. Your prompts should be rich in visual details, artistic style references, lighting conditions, and compositional elements.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Base concept: {{ $json.base_prompt }}\\n\\nAttempt #{{ $json.attempt_number }}\\n\\nPrevious attempts history: {{ $json.process_history }}\\n\\nCreate a detailed, artistic prompt for AI image generation. Include specific details about:\\n- Artistic style and technique\\n- Lighting and atmosphere\\n- Color palette\\n- Composition and framing\\n- Texture and materials\\n- Mood and emotion\\n\\nMake it visually rich and professionally crafted.\"\n    }\n  ],\n  \"max_tokens\": 500,\n  \"temperature\": 0.8\n}"
+        "bodyParametersJson": "{\n  \"model\": \"gpt-4-turbo-preview\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert AI art prompt engineer. Your goal is to iteratively refine prompts for AI image generation based on a base concept and feedback from previous attempts. Create prompts that are highly detailed, visually stunning, and rich in artistic style, lighting, color, composition, texture, and mood. Analyze the provided history of attempts, scores, and comments to guide your improvements.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Base concept: {{ $json.base_prompt }}\\n\\n        Attempt #{{ $json.attempt_number }}\\n\\n        Review the following history of previous attempts. Each entry includes the 'attempt' number, the 'prompt' used, the 'score' it received (0-10, higher is better), and 'comments' from the reviewer. Your task is to generate a new, improved prompt based on this feedback, aiming for a higher score. Focus on addressing any negative comments and amplifying aspects that were received positively or align with the base concept.\\n\\n        Previous attempts history (JSON format):\\n        {{ $json.process_history }}\\n\\n        Based on the base concept and the full history, generate a new, detailed, and artistic prompt for AI image generation. Ensure it includes specific details about:\\n        - Artistic style and technique (e.g., impressionistic, photorealistic, specific artist style)\\n        - Lighting and atmosphere (e.g., golden hour, neon glow, misty morning)\\n        - Color palette (e.g., vibrant primaries, muted pastels, monochrome)\\n        - Composition and framing (e.g., close-up, wide shot, rule of thirds)\\n        - Texture and materials (e.g., rough stone, smooth silk, metallic sheen)\\n        - Mood and emotion (e.g., serene, chaotic, joyful)\\n\\nThe new prompt should be visually rich, professionally crafted, and directly address feedback from the history. Do not repeat prompts that scored poorly. If the history is empty, generate your best first attempt based on the base concept.\"\n    }\n  ],\n  \"max_tokens\": 500,\n  \"temperature\": 0.8\n}",
+        "errorHandling": {
+          "response": {
+            "neverError": false,
+            "outputError": true,
+            "outputErrorKey": "errorDetails",
+            "errorResponseCode": "={{ $statusCode }}",
+            "errorResponseMessage": "={{ $response.body }}"
+          }
+        }
       }
     },
     {
@@ -151,6 +163,327 @@
         "language": "javascript",
         "jsCode": "// Helper function to calculate API cost\nfunction calculatePromptCost(promptTokens, completionTokens) {\n  return (promptTokens * 0.00003) + (completionTokens * 0.00006);\n}\n\ntry {\n  const response = items[0].json;\n  \n  // Validate response structure\n  if (!response.choices?.[0]?.message?.content) {\n    throw new Error('Invalid response structure from OpenAI API');\n  }\n  \n  const generatedPrompt = response.choices[0].message.content.trim();\n  const tokenUsage = response.usage;\n  \n  // Calculate cost with validation\n  if (!tokenUsage || !tokenUsage.prompt_tokens || !tokenUsage.completion_tokens) {\n    throw new Error('Invalid token usage data in response');\n  }\n  \n  const promptCost = calculatePromptCost(tokenUsage.prompt_tokens, tokenUsage.completion_tokens);\n  \n  return items.map(item => ({\n    json: {\n      ...item.json,\n      enhanced_prompt: generatedPrompt,\n      prompt_generation_cost: promptCost,\n      total_api_cost: item.json.total_api_cost + promptCost,\n      prompt_tokens_used: tokenUsage.total_tokens\n    }\n  }));\n} catch (error) {\n  console.error('Error parsing prompt response:', error);\n  throw new Error(`Failed to parse prompt generation response: ${error.message}`);\n}"
       }
+    },
+    {
+      "id": "generate_image",
+      "name": "Generate Image (Placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1100, 100],
+      "parameters": {
+        "url": "http://localhost:5001/generate-image",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParametersJson": "{\n  \"prompt\": \"{{ $json.enhanced_prompt }}\"\n}",
+        "options": {
+          "responseData": "{\n  \"image_url\": \"placeholder_image_url.jpg\",\n  \"image_cost\": 0.05\n}"
+        },
+        "notes": "This is a placeholder for actual image generation. It simulates API response.",
+        "errorHandling": {
+          "response": {
+            "neverError": false,
+            "outputError": true,
+            "outputErrorKey": "errorDetails",
+            "errorResponseCode": "={{ $statusCode }}",
+            "errorResponseMessage": "={{ $response.body }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "wait_for_review",
+      "name": "Wait for Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1300, 100],
+      "parameters": {
+        "mode": "manual",
+        "resumeOn": {
+          "webhook": {}
+        },
+        "ui": {
+          "instructions": {
+            "mode": "show",
+            "value": "Review the generated image and provide a score (0-10). Image URL: {{ $json.image_url }}. Current prompt: {{ $json.enhanced_prompt }}"
+          },
+          "submitButton": {
+            "text": "Submit Score"
+          },
+          "properties": {
+            "fields": [
+              {
+                "id": "review_score",
+                "label": "Review Score (0-10)",
+                "type": "number",
+                "required": true,
+                "validation": {
+                  "minValue": 0,
+                  "maxValue": 10
+                }
+              },
+              {
+                "id": "review_comments",
+                "label": "Review Comments (Optional)",
+                "type": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "set_review_score",
+      "name": "Set Review Score & Update Cost",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1500, 100],
+      "parameters": {
+        "mode": "manual",
+        "options": {
+          "keepExistingData": true
+        },
+        "assignments": {
+          "assignments": [
+            {
+              "id": "current_score",
+              "name": "current_score",
+              "value": "={{ $resume.review_score }}",
+              "type": "number"
+            },
+            {
+              "id": "total_api_cost",
+              "name": "total_api_cost",
+              "value": "={{ $json.total_api_cost + ($json.image_cost || 0.05) }}",
+              "type": "number"
+            },
+            {
+              "id": "review_comments",
+              "name": "review_comments",
+              "value": "={{ $resume.review_comments }}",
+              "type": "string"
+            }
+          ]
+        },
+        "notes": "Updates current_score based on manual review and adds simulated image_cost to total_api_cost."
+      }
+    },
+    {
+      "id": "check_score_threshold",
+      "name": "Check Score Threshold",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 100],
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "score_check",
+              "leftValue": "={{ $json.current_score }}",
+              "rightValue": "={{ $json.min_score_threshold }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "increment_attempt",
+      "name": "Increment Attempt Number",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1700, 300],
+      "parameters": {
+        "mode": "manual",
+        "options": {
+          "keepExistingData": true
+        },
+        "assignments": {
+          "assignments": [
+            {
+              "id": "attempt_number",
+              "name": "attempt_number",
+              "value": "={{ $json.attempt_number + 1 }}",
+              "type": "number"
+            },
+            {
+              "id": "process_history",
+              "name": "process_history",
+              "value": "={{ $json.process_history.concat([{ attempt: $json.attempt_number, score: $json.current_score, prompt: $json.enhanced_prompt, comments: $json.review_comments }]) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "notes": "Increments attempt_number and adds current attempt details to process_history."
+      }
+    },
+    {
+      "id": "end_score_met",
+      "name": "End - Score Met",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1900, 100],
+      "parameters": {},
+      "notes": "Workflow ends here if the review score meets the minimum threshold."
+    },
+    {
+      "id": "end_max_attempts",
+      "name": "End - Max Attempts Reached",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "parameters": {},
+      "notes": "Workflow ends here if the maximum number of attempts is reached."
+    }
+  ],
+  "connections": [
+    {
+      "source": "start",
+      "target": "init_config",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "init_config",
+      "target": "check_max_attempts",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "check_max_attempts",
+      "target": "generate_enhanced_prompt",
+      "main": [
+        [
+          {
+            "outputName": "true",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "check_max_attempts",
+      "target": "end_max_attempts",
+      "main": [
+        [
+          {
+            "outputName": "false",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "generate_enhanced_prompt",
+      "target": "parse_prompt_response",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "parse_prompt_response",
+      "target": "generate_image",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "generate_image",
+      "target": "wait_for_review",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "wait_for_review",
+      "target": "set_review_score",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "set_review_score",
+      "target": "check_score_threshold",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "check_score_threshold",
+      "target": "end_score_met",
+      "main": [
+        [
+          {
+            "outputName": "true",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "check_score_threshold",
+      "target": "increment_attempt",
+      "main": [
+        [
+          {
+            "outputName": "false",
+            "inputName": "main"
+          }
+        ]
+      ]
+    },
+    {
+      "source": "increment_attempt",
+      "target": "check_max_attempts",
+      "main": [
+        [
+          {
+            "outputName": "main",
+            "inputName": "main"
+          }
+        ]
+      ]
     }
   ]
 }
