@@ -1,0 +1,156 @@
+{
+  "name": "AI Art NFT Loop with Reviewer",
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [100, 100],
+      "parameters": {}
+    },
+    {
+      "id": "init_config",
+      "name": "Initialize Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [300, 100],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base_prompt",
+              "name": "base_prompt",
+              "value": "A stunning cyberpunk cityscape at night with neon lights reflecting on wet streets",
+              "type": "string"
+            },
+            {
+              "id": "process_history",
+              "name": "process_history",
+              "value": "[]",
+              "type": "string"
+            },
+            {
+              "id": "current_score",
+              "name": "current_score",
+              "value": 0,
+              "type": "number"
+            },
+            {
+              "id": "attempt_number",
+              "name": "attempt_number",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "max_attempts",
+              "name": "max_attempts",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "min_score_threshold",
+              "name": "min_score_threshold",
+              "value": 8.0,
+              "type": "number"
+            },
+            {
+              "id": "total_api_cost",
+              "name": "total_api_cost",
+              "value": 0,
+              "type": "number"
+            },
+            {
+              "id": "workflow_start_time",
+              "name": "workflow_start_time",
+              "value": "{{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "check_max_attempts",
+      "name": "Check Max Attempts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "attempt_check",
+              "leftValue": "={{ $json.attempt_number }}",
+              "rightValue": "={{ $json.max_attempts }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "generate_enhanced_prompt",
+      "name": "Generate Enhanced Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 100],
+      "parameters": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $vars.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "sendQuery": false,
+        "queryParameters": {
+          "parameters": []
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "retryDelay": 1000
+          }
+        },
+        "bodyParametersJson": "{\n  \"model\": \"gpt-4-turbo-preview\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert AI art prompt engineer specializing in creating highly detailed, visually stunning prompts for AI image generation. Your prompts should be rich in visual details, artistic style references, lighting conditions, and compositional elements.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Base concept: {{ $json.base_prompt }}\\n\\nAttempt #{{ $json.attempt_number }}\\n\\nPrevious attempts history: {{ $json.process_history }}\\n\\nCreate a detailed, artistic prompt for AI image generation. Include specific details about:\\n- Artistic style and technique\\n- Lighting and atmosphere\\n- Color palette\\n- Composition and framing\\n- Texture and materials\\n- Mood and emotion\\n\\nMake it visually rich and professionally crafted.\"\n    }\n  ],\n  \"max_tokens\": 500,\n  \"temperature\": 0.8\n}"
+      }
+    },
+    {
+      "id": "parse_prompt_response",
+      "name": "Parse Prompt Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 100],
+      "parameters": {
+        "language": "javascript",
+        "jsCode": "// Helper function to calculate API cost\nfunction calculatePromptCost(promptTokens, completionTokens) {\n  return (promptTokens * 0.00003) + (completionTokens * 0.00006);\n}\n\ntry {\n  const response = items[0].json;\n  \n  // Validate response structure\n  if (!response.choices?.[0]?.message?.content) {\n    throw new Error('Invalid response structure from OpenAI API');\n  }\n  \n  const generatedPrompt = response.choices[0].message.content.trim();\n  const tokenUsage = response.usage;\n  \n  // Calculate cost with validation\n  if (!tokenUsage || !tokenUsage.prompt_tokens || !tokenUsage.completion_tokens) {\n    throw new Error('Invalid token usage data in response');\n  }\n  \n  const promptCost = calculatePromptCost(tokenUsage.prompt_tokens, tokenUsage.completion_tokens);\n  \n  return items.map(item => ({\n    json: {\n      ...item.json,\n      enhanced_prompt: generatedPrompt,\n      prompt_generation_cost: promptCost,\n      total_api_cost: item.json.total_api_cost + promptCost,\n      prompt_tokens_used: tokenUsage.total_tokens\n    }\n  }));\n} catch (error) {\n  console.error('Error parsing prompt response:', error);\n  throw new Error(`Failed to parse prompt generation response: ${error.message}`);\n}"
+      }
+    }
+  ]
+}
